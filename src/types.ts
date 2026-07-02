@@ -8,6 +8,9 @@ export interface Profile {
   tier: string;
   shipping_address?: string;
   created_at: string;
+  last_claim_date?: string;
+  last_claimed_at?: string;
+  daily_streak?: number;
 }
 
 export interface Box {
@@ -37,7 +40,7 @@ export interface InventoryItem {
   user_id: string;
   item_id: string;
   box_name: string;
-  status: 'pending' | 'inventory' | 'sold' | 'shipped' | 'upgraded_lost' | 'upgraded_won';
+  status: 'pending' | 'inventory' | 'sold' | 'shipped' | 'processed' | 'upgraded_lost' | 'upgraded_won';
   sell_price: number;
   created_at: string;
   shipping_label?: string;
@@ -51,6 +54,7 @@ export interface Transaction {
   amount: number;
   description: string;
   created_at: string;
+  status?: 'pending' | 'completed';
 }
 
 export interface LiveFeedItem {

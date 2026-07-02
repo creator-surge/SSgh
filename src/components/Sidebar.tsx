@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Swords, Package, CreditCard, User, HelpCircle, Shield, Sparkles, MessageSquare, Award } from 'lucide-react';
+import { LayoutDashboard, Swords, Package, CreditCard, User, HelpCircle, Shield, Sparkles, MessageSquare, Award, Gamepad2 } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 
 export default function Sidebar() {
@@ -10,6 +10,7 @@ export default function Sidebar() {
     { to: "/", icon: LayoutDashboard, label: "Dashboard" },
     { to: "/battles", icon: Swords, label: "Battle Arena" },
     { to: "/inventory", icon: Package, label: "My Inventory" },
+    { to: "/games", icon: Gamepad2, label: "Arcade Games" },
     { to: "/wallet", icon: CreditCard, label: "Wallet & ledger" },
     { to: "/leaderboard", icon: Award, label: "Leaderboards" },
     { to: "/profile", icon: User, label: "Profile" },

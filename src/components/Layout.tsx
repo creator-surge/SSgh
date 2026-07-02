@@ -8,7 +8,7 @@ import { MessageSquare, Send, Sparkles, AlertCircle, RefreshCw, Smartphone } fro
 import { Toaster, toast } from 'sonner';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  const { profile } = useAuthStore();
+  const { profile, loadProfile } = useAuthStore();
   const [chatInput, setChatInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [liveFeedDrops, setLiveFeedDrops] = useState<LiveFeedItem[]>([]);
@@ -27,6 +27,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    loadProfile();
     fetchChatAndDrops();
     // Refresh periodically
     const interval = setInterval(() => {
@@ -71,7 +72,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Center Main App Stage */}
         <main className="flex-1 overflow-y-auto px-4 md:px-8 py-6 pb-24 lg:pb-8 relative">
           {/* Atmosphere Ambient Glow in the background */}
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-orange-600/5 blur-[120px] rounded-full -z-10 pointer-events-none"></div>
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-orange-600/10 blur-[150px] rounded-full -z-10 pointer-events-none animate-pulse duration-[6000ms]"></div>
           {children}
         </main>
 
@@ -211,6 +212,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </a>
         <a href="/inventory" className="flex flex-col items-center text-white/60 hover:text-orange-500 transition-colors">
           <span className="text-[10px] font-sans font-black uppercase tracking-wider">Inventory</span>
+        </a>
+        <a href="/games" className="flex flex-col items-center text-white/60 hover:text-orange-500 transition-colors">
+          <span className="text-[10px] font-sans font-black uppercase tracking-wider">Arcade</span>
         </a>
         <a href="/wallet" className="flex flex-col items-center text-white/60 hover:text-orange-500 transition-colors">
           <span className="text-[10px] font-sans font-black uppercase tracking-wider">Wallet</span>

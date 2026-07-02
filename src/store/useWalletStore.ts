@@ -7,7 +7,7 @@ interface WalletState {
   isLoading: boolean;
   error: string | null;
   fetchTransactions: (userId: string) => Promise<void>;
-  depositFunds: (userId: string, amount: number, method: 'Credit Card' | 'PayPal' | 'Crypto') => Promise<{ success: boolean; total_added: number; message: string }>;
+  depositFunds: (userId: string, amount: number, method: 'Credit Card' | 'PayPal' | 'Crypto' | string) => Promise<{ success: boolean; total_added: number; message: string }>;
 }
 
 export const useWalletStore = create<WalletState>((set) => ({
@@ -27,7 +27,7 @@ export const useWalletStore = create<WalletState>((set) => ({
     }
   },
 
-  depositFunds: async (userId: string, amount: number, method: 'Credit Card' | 'PayPal' | 'Crypto') => {
+  depositFunds: async (userId: string, amount: number, method: 'Credit Card' | 'PayPal' | 'Crypto' | string) => {
     set({ isLoading: true, error: null });
     try {
       const res = await submitWalletDeposit(userId, amount, method);

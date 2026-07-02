@@ -3,6 +3,7 @@ import { InventoryItem } from '../types';
 import { getRarityStyle } from '../utils/rarityColors';
 import { formatCurrency } from '../utils/formatCurrency';
 import { DollarSign, Truck, Sparkles, ShieldCheck } from 'lucide-react';
+import ConfirmSellModal from './ConfirmSellModal';
 
 interface ItemCardProps {
   item: InventoryItem;
@@ -13,6 +14,8 @@ interface ItemCardProps {
 
 export default function ItemCard({ item, onSell, onShip, onUpgrade }: ItemCardProps) {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSellModalOpen, setIsSellModalOpen] = useState(false);
+  
   const detail = item.item;
   if (!detail) return null;
 
@@ -108,7 +111,7 @@ export default function ItemCard({ item, onSell, onShip, onUpgrade }: ItemCardPr
             {/* Quick Liquidation Resell */}
             <button
               disabled={isProcessing}
-              onClick={() => handleAction(onSell)}
+              onClick={() => setIsSellModalOpen(true)}
               className="flex items-center justify-center space-x-1 rounded-lg bg-emerald-500 text-black py-2 px-2 font-sans text-[10px] font-black uppercase tracking-wider transition-all hover:bg-emerald-400 disabled:opacity-50 cursor-pointer"
               title={`Liquidate immediately for 80% market price: ${formatCurrency(item.sell_price)}`}
             >
@@ -146,6 +149,16 @@ export default function ItemCard({ item, onSell, onShip, onUpgrade }: ItemCardPr
       <div className="mt-2 text-[9px] text-white/30 font-mono text-right">
         {new Date(item.created_at).toLocaleDateString()}
       </div>
+
+      <ConfirmSellModal
+        isOpen={isSellModalOpen}
+        onClose={() => setIsSellModalOpen(false)}
+        onConfirm={() => handleAction(onSell)}
+        itemName={detail.name}
+        sellPrice={item.sell_price}
+        itemImageUrl={detail.image_url}
+        rarity={detail.rarity}
+      />
     </div>
   );
 }

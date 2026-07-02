@@ -85,3 +85,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   }
 }));
+
+// Auto-initialize profile in the background immediately on store load
+setTimeout(() => {
+  useAuthStore.getState().loadProfile();
+}, 0);

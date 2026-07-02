@@ -91,3 +91,20 @@ body {
 .animate-spin-slow {
   animation: spinSlow 8s linear infinite;
 }
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(249, 115, 22, 0.2), inset 0 0 4px rgba(249, 115, 22, 0.1); border-color: rgba(249, 115, 22, 0.2); }
+  50% { box-shadow: 0 0 20px rgba(249, 115, 22, 0.5), inset 0 0 8px rgba(249, 115, 22, 0.25); border-color: rgba(249, 115, 22, 0.6); }
+}
+.animate-glow-pulse {
+  animation: glowPulse 3s infinite ease-in-out;
+}
+
+@keyframes purpleGlowPulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(138, 61, 255, 0.2), inset 0 0 4px rgba(138, 61, 255, 0.1); border-color: rgba(138, 61, 255, 0.2); }
+  50% { box-shadow: 0 0 20px rgba(138, 61, 255, 0.5), inset 0 0 8px rgba(138, 61, 255, 0.25); border-color: rgba(138, 61, 255, 0.6); }
+}
+.animate-glow-pulse-purple {
+  animation: purpleGlowPulse 3s infinite ease-in-out;
+}
+

@@ -6,11 +6,12 @@ import BoxDetails from './pages/BoxDetails';
 import BattleLobby from './components/BattleLobby';
 import BattleRoom from './components/BattleRoom';
 import Inventory from './pages/Inventory';
-import Transactions from './pages/Transactions';
+import WalletPage from './pages/WalletPage';
 import Profile from './pages/Profile';
 import Leaderboard from './pages/Leaderboard';
 import Admin from './pages/Admin';
 import Login from './pages/Login';
+import MiniGames from './pages/MiniGames';
 
 // Battle Arena page container routing lobby vs active room
 function BattleArenaPage() {
@@ -37,7 +38,8 @@ export default function App() {
           <Route path="/boxes/:id" element={<BoxDetails />} />
           <Route path="/battles" element={<BattleArenaPage />} />
           <Route path="/inventory" element={<Inventory />} />
-          <Route path="/wallet" element={<Transactions />} />
+          <Route path="/wallet" element={<WalletPage />} />
+          <Route path="/games" element={<MiniGames />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/admin" element={<Admin />} />

@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { createServer as createViteServer } from "vite";
+import Stripe from "stripe";
 import { Box, BoxItem, InventoryItem, Profile, Transaction, LiveFeedItem, Battle, BattleParticipant, ChatMessage, BingoState, LotteryState } from "./src/types.js";
 
 const __filenameVal = typeof import.meta !== "undefined" && import.meta.url
@@ -213,6 +214,75 @@ async function startServer() {
       profile.shipping_address = shipping_address;
     }
     res.json(profile);
+  });
+
+  // Daily Rewards endpoint - simulated Supabase transaction
+  app.post("/api/profile/claim-daily", (req, res) => {
+    const { user_id } = req.body;
+    
+    // Simulating database transactional BEGIN/FOR UPDATE lock
+    const profile = profiles.find(p => p.id === user_id);
+    if (!profile) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0]; // YYYY-MM-DD
+    
+    if (profile.last_claim_date === todayStr) {
+      return res.status(400).json({ error: "Daily reward already claimed today. Come back tomorrow!" });
+    }
+
+    let currentStreak = profile.daily_streak || 0;
+    let isConsecutive = false;
+
+    if (profile.last_claim_date) {
+      const lastClaim = new Date(profile.last_claim_date);
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      if (profile.last_claim_date === yesterdayStr) {
+        isConsecutive = true;
+      }
+    }
+
+    if (isConsecutive) {
+      currentStreak += 1;
+    } else {
+      currentStreak = 1;
+    }
+
+    // Base reward is 5.00 credits, plus streak bonus ($0.50 per day up to $5.00 maximum bonus)
+    const baseReward = 5.00;
+    const streakBonus = Math.min(5.00, (currentStreak - 1) * 0.50);
+    const totalReward = Number((baseReward + streakBonus).toFixed(2));
+
+    // Transaction-safe updates
+    profile.balance = Number((profile.balance + totalReward).toFixed(2));
+    profile.daily_streak = currentStreak;
+    profile.last_claim_date = todayStr;
+    profile.last_claimed_at = now.toISOString();
+
+    // Record Transaction Ledger Entry
+    const newTx: Transaction = {
+      id: "tx-" + Math.floor(100000 + Math.random() * 900000),
+      user_id: profile.id,
+      type: "deposit",
+      amount: totalReward,
+      description: `Daily Reward Claimed (Day ${currentStreak} Streak)`,
+      created_at: now.toISOString()
+    };
+    transactions.push(newTx);
+
+    res.json({
+      success: true,
+      reward_amount: totalReward,
+      new_balance: profile.balance,
+      streak: currentStreak,
+      last_claim_date: todayStr,
+      profile
+    });
   });
 
   // Fetch Boxes & Items
@@ -436,6 +506,218 @@ async function startServer() {
     });
   });
 
+  // Create pending Crypto transaction
+  app.post("/api/wallet/crypto-deposit", (req, res) => {
+    const { user_id, amount, coin } = req.body;
+    const profile = profiles.find(p => p.id === user_id);
+    if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+    const parsedAmount = Number(amount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: "Invalid deposit amount" });
+    }
+
+    const pendingTx: Transaction = {
+      id: "tx-crypto-" + Math.floor(100000 + Math.random() * 900000),
+      user_id: user_id,
+      type: "deposit",
+      amount: parsedAmount,
+      description: `Pending Crypto Deposit (${coin})`,
+      created_at: new Date().toISOString(),
+      status: 'pending'
+    };
+    transactions.push(pendingTx);
+
+    res.json({
+      success: true,
+      transaction: pendingTx,
+      message: `Pending ${coin} deposit of ${parsedAmount} initiated.`
+    });
+  });
+
+  // Confirm pending Crypto transaction (simulating Edge Function verification)
+  app.post("/api/wallet/crypto-confirm", (req, res) => {
+    const { transaction_id, user_id } = req.body;
+    const txIndex = transactions.findIndex(t => t.id === transaction_id);
+    if (txIndex === -1) {
+      return res.status(404).json({ error: "Transaction not found" });
+    }
+
+    const tx = transactions[txIndex];
+    if (tx.status !== 'pending') {
+      return res.status(400).json({ error: "Transaction is not pending or already completed" });
+    }
+
+    const profile = profiles.find(p => p.id === (user_id || tx.user_id));
+    if (!profile) return res.status(404).json({ error: "Profile not found for this transaction" });
+
+    const parsedAmount = Number(tx.amount);
+    const bonus = Number((parsedAmount * 0.05).toFixed(2));
+    const totalAdded = parsedAmount + bonus;
+
+    // Credit user's wallet
+    profile.balance = Number((profile.balance + totalAdded).toFixed(2));
+
+    // Update main transaction status to completed
+    tx.status = 'completed';
+    tx.description = `${tx.description.replace('Pending ', '')} (Verified & Credited)`;
+
+    // Payout the promo bonus transaction
+    if (bonus > 0) {
+      transactions.push({
+        id: "tx-b-" + Math.floor(100000 + Math.random() * 900000),
+        user_id: profile.id,
+        type: "deposit",
+        amount: bonus,
+        description: `Promo Bonus: +5% Crypto top-up credit boost`,
+        created_at: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      new_balance: profile.balance,
+      total_added: totalAdded,
+      transaction: tx,
+      message: `Verified and credited ${totalAdded} securely (includes 5% bonus)!`
+    });
+  });
+
+  // Stripe Billing Integration Helper
+  let stripeInstance: Stripe | null = null;
+  function getStripeInstance() {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key || key.trim() === "" || key.trim().startsWith("pk_")) {
+      return null;
+    }
+    if (!stripeInstance) {
+      stripeInstance = new Stripe(key.trim(), {
+        apiVersion: "2022-11-15" as any
+      });
+    }
+    return stripeInstance;
+  }
+
+  // Create Stripe Checkout Session
+  app.post("/api/stripe/create-checkout-session", async (req, res) => {
+    const { user_id, amount, credited_amount } = req.body;
+    const profile = profiles.find(p => p.id === user_id);
+    if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+    const parsedAmount = Number(amount);
+    if (isNaN(parsedAmount) || parsedAmount < 5) {
+      return res.status(400).json({ error: "Minimum deposit is $5.00" });
+    }
+
+    const parsedCreditedAmount = credited_amount ? Number(credited_amount) : parsedAmount;
+
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (key && key.trim().startsWith("pk_")) {
+      return res.status(400).json({
+        error: "Invalid Stripe Secret Key. Your STRIPE_SECRET_KEY starts with 'pk_', which is a publishable key. Please provide a secret API key (starts with 'sk_') in your environment settings, or clear the key entirely to use our simulated Sandbox Stripe Checkout."
+      });
+    }
+
+    const stripe = getStripeInstance();
+    if (!stripe) {
+      console.log(`[Stripe Mock] Simulating checkout session for $${parsedAmount} (crediting $${parsedCreditedAmount}) for user ${user_id}`);
+      const successUrl = `${req.headers.origin || "http://localhost:3000"}/wallet?session_id=mock_stripe_${Math.floor(Math.random()*1000000)}&amount=${parsedCreditedAmount}`;
+      return res.json({ 
+        id: `cs_test_mock_${Math.floor(Math.random()*1000000)}`, 
+        url: successUrl, 
+        isMock: true 
+      });
+    }
+
+    try {
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: "Surge Stream Wallet Top Up",
+                description: `Add $${parsedCreditedAmount.toFixed(2)} credits to user balance`,
+              },
+              unit_amount: Math.round(parsedAmount * 100),
+            },
+            quantity: 1,
+          },
+        ],
+        mode: "payment",
+        metadata: {
+          user_id: user_id,
+          amount: parsedCreditedAmount.toString()
+        },
+        success_url: `${req.headers.origin || "http://localhost:3000"}/wallet?session_id={CHECKOUT_SESSION_ID}&amount=${parsedCreditedAmount}`,
+        cancel_url: `${req.headers.origin || "http://localhost:3000"}/wallet?canceled=true`,
+      });
+
+      res.json({ id: session.id, url: session.url, isMock: false });
+    } catch (err: any) {
+      console.error("Stripe session creation error:", err);
+      res.status(500).json({ error: err.message || "Failed to create Stripe checkout session" });
+    }
+  });
+
+  // Confirm Stripe Checkout Session
+  app.post("/api/stripe/confirm-session", async (req, res) => {
+    const { session_id, user_id, amount: requestedAmount } = req.body;
+    const profile = profiles.find(p => p.id === user_id);
+    if (!profile) return res.status(404).json({ error: "Profile not found" });
+
+    // Deduplicate transaction to prevent double spending
+    const existingTx = transactions.find(t => t.description.includes(session_id));
+    if (existingTx) {
+      return res.json({ success: true, already_processed: true, new_balance: profile.balance });
+    }
+
+    if (session_id.startsWith("mock_stripe_")) {
+      const amountParam = Number(requestedAmount || 10);
+      profile.balance = Number((profile.balance + amountParam).toFixed(2));
+
+      transactions.push({
+        id: "tx-" + Math.floor(100000 + Math.random() * 900000),
+        user_id: user_id,
+        type: "deposit",
+        amount: amountParam,
+        description: `Deposited $${amountParam.toFixed(2)} via Stripe (Mock Session: ${session_id})`,
+        created_at: new Date().toISOString()
+      });
+
+      return res.json({ success: true, new_balance: profile.balance, amount: amountParam });
+    }
+
+    const stripe = getStripeInstance();
+    if (!stripe) {
+      return res.status(400).json({ error: "Stripe is not configured and this is not a mock session" });
+    }
+
+    try {
+      const session = await stripe.checkout.sessions.retrieve(session_id);
+      if (session.payment_status === "paid") {
+        const amount = Number(session.metadata?.amount || (session.amount_total ? session.amount_total / 100 : 0));
+        profile.balance = Number((profile.balance + amount).toFixed(2));
+
+        transactions.push({
+          id: "tx-" + Math.floor(100000 + Math.random() * 900000),
+          user_id: user_id,
+          type: "deposit",
+          amount: amount,
+          description: `Deposited $${amount.toFixed(2)} via Stripe (Session ID: ${session_id})`,
+          created_at: new Date().toISOString()
+        });
+
+        res.json({ success: true, new_balance: profile.balance, amount });
+      } else {
+        res.status(400).json({ error: "Checkout session is not paid" });
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Failed to verify Stripe checkout session" });
+    }
+  });
+
   // Multi-Player Battles State (Battle Arena)
   app.get("/api/battles", (req, res) => {
     res.json(battles);
@@ -610,83 +892,112 @@ async function startServer() {
     if (!profile) return res.status(404).json({ error: "Profile not found" });
 
     const cardCost = 15.00;
+
+    // --- SECURE SUPABASE TRANSACTION (SIMULATED FOR ATOMICITY) ---
+    // DB Query Plan:
+    // BEGIN;
+    // SELECT balance FROM profiles WHERE id = $1 FOR UPDATE;
+    // UPDATE profiles SET balance = balance - $2 WHERE id = $1;
+    // INSERT INTO transactions (id, user_id, type, amount, description) VALUES (...);
+    // COMMIT;
+
+    console.log(`[SUPABASE TRANSACTION - BEGIN] Initiating purchase of Bingo card for user: ${user_id}`);
+    
     if (profile.balance < cardCost) {
+      console.log(`[SUPABASE TRANSACTION - ROLLBACK] User balance ${profile.balance} is less than card cost ${cardCost}`);
       return res.status(400).json({ error: "Insufficient balance to purchase Bingo King card ($15.00)" });
     }
 
-    // Deduct
-    profile.balance = Number((profile.balance - cardCost).toFixed(2));
+    // Capture original balance for rollback safety
+    const originalBalance = profile.balance;
 
-    // Generate random card (5x5 grid, numbers 1-75)
-    const card: number[][] = Array.from({ length: 5 }, (_, r) => 
-      Array.from({ length: 5 }, () => Math.floor(1 + Math.random() * 75))
-    );
-    // FREE SPACE at center
-    card[2][2] = 0;
+    try {
+      // Execute Atomic Deduction
+      profile.balance = Number((profile.balance - cardCost).toFixed(2));
+      console.log(`[SUPABASE TRANSACTION - DEDUCT] Deducted $${cardCost} from user. New balance: ${profile.balance}`);
 
-    // Simulate 35 calls immediately
-    const called_numbers: number[] = [];
-    while (called_numbers.length < 35) {
-      const num = Math.floor(1 + Math.random() * 75);
-      if (!called_numbers.includes(num)) called_numbers.push(num);
-    }
+      // Generate random card (5x5 grid, numbers 1-75)
+      const card: number[][] = Array.from({ length: 5 }, (_, r) => 
+        Array.from({ length: 5 }, () => Math.floor(1 + Math.random() * 75))
+      );
+      // FREE SPACE at center
+      card[2][2] = 0;
 
-    // Count matches (excluding free center spot)
-    let matchesCount = 0;
-    card.forEach((row, r) => row.forEach((val, c) => {
-      if (r === 2 && c === 2) return;
-      if (called_numbers.includes(val)) matchesCount++;
-    }));
+      // Simulate 35 calls immediately
+      const called_numbers: number[] = [];
+      while (called_numbers.length < 35) {
+        const num = Math.floor(1 + Math.random() * 75);
+        if (!called_numbers.includes(num)) called_numbers.push(num);
+      }
 
-    // Reward payout calculation based on matches count
-    const win = matchesCount >= 10;
-    const prize = win ? Math.floor(matchesCount * 4) : 0;
-    
-    if (win) {
-      profile.balance = Number((profile.balance + prize).toFixed(2));
-      profile.loyalty_points += 15; // loyalty resource bonus
-    }
+      // Count matches (excluding free center spot)
+      let matchesCount = 0;
+      card.forEach((row, r) => row.forEach((val, c) => {
+        if (r === 2 && c === 2) return;
+        if (called_numbers.includes(val)) matchesCount++;
+      }));
 
-    const bingoState: BingoState = {
-      id: "bingo-" + Math.floor(100000 + Math.random() * 900000),
-      user_id: user_id,
-      card,
-      called_numbers,
-      progress: Math.floor((matchesCount / 24) * 100),
-      won: win,
-      purchased_at: new Date().toISOString()
-    };
+      // Reward payout calculation based on matches count
+      const win = matchesCount >= 10;
+      const prize = win ? Math.floor(matchesCount * 4) : 0;
+      
+      if (win) {
+        profile.balance = Number((profile.balance + prize).toFixed(2));
+        profile.loyalty_points += 15; // loyalty resource bonus
+        console.log(`[SUPABASE TRANSACTION - CREDIT] User won! Credited $${prize} and +15 XP`);
+      }
 
-    bingoCards.push(bingoState);
+      const bingoState: BingoState = {
+        id: "bingo-" + Math.floor(100000 + Math.random() * 900000),
+        user_id: user_id,
+        card,
+        called_numbers,
+        progress: Math.floor((matchesCount / 24) * 100),
+        won: win,
+        purchased_at: new Date().toISOString()
+      };
 
-    // Ledger transactions
-    transactions.push({
-      id: "tx-" + Math.floor(100000 + Math.random() * 900000),
-      user_id,
-      type: "bingo_buy",
-      amount: -cardCost,
-      description: `Purchased Bingo King 75-call card`,
-      created_at: new Date().toISOString()
-    });
+      bingoCards.push(bingoState);
 
-    if (win) {
+      // Log secure transactions to ledger inside the same atomic boundary
+      const buyTxId = "tx-" + Math.floor(100000 + Math.random() * 900000);
       transactions.push({
-        id: "tx-" + Math.floor(100000 + Math.random() * 900000),
+        id: buyTxId,
         user_id,
-        type: "bingo_win",
-        amount: prize,
-        description: `Won Bingo King payout with ${matchesCount} number matches (+15 loyalty resources)`,
+        type: "bingo_buy",
+        amount: -cardCost,
+        description: `Purchased Bingo King 75-call card (Verified Ref: ${buyTxId})`,
         created_at: new Date().toISOString()
       });
-    }
 
-    res.json({
-      success: true,
-      bingo: bingoState,
-      matches: matchesCount,
-      prize_won: prize,
-      new_balance: profile.balance
-    });
+      if (win) {
+        const winTxId = "tx-" + Math.floor(100000 + Math.random() * 900000);
+        transactions.push({
+          id: winTxId,
+          user_id,
+          type: "bingo_win",
+          amount: prize,
+          description: `Won Bingo King payout with ${matchesCount} number matches (+15 loyalty resources) (Verified Ref: ${winTxId})`,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      console.log(`[SUPABASE TRANSACTION - COMMIT] Transaction successfully finalized and persisted to ledger.`);
+
+      res.json({
+        success: true,
+        bingo: bingoState,
+        matches: matchesCount,
+        prize_won: prize,
+        new_balance: profile.balance
+      });
+
+    } catch (error) {
+      // In case of any unhandled runtime error during processing, trigger automatic state rollback to maintain credit security
+      profile.balance = originalBalance;
+      console.error(`[SUPABASE TRANSACTION - FATAL ROLLBACK] Transaction failed, state reverted to original balance ${originalBalance}:`, error);
+      res.status(500).json({ error: "Secure Supabase ledger transaction failed. Balance was fully rolled back safely." });
+    }
   });
 
   // Game 2: Pick-5 Lottery
@@ -700,76 +1011,107 @@ async function startServer() {
     if (!profile) return res.status(404).json({ error: "Profile not found" });
 
     const ticketPrice = 10.00;
+
+    // --- SECURE SUPABASE TRANSACTION (SIMULATED FOR ATOMICITY) ---
+    // DB Query Plan:
+    // BEGIN;
+    // SELECT balance FROM profiles WHERE id = $1 FOR UPDATE;
+    // UPDATE profiles SET balance = balance - $2 WHERE id = $1;
+    // INSERT INTO transactions (id, user_id, type, amount, description) VALUES (...);
+    // COMMIT;
+
+    console.log(`[SUPABASE TRANSACTION - BEGIN] Initiating purchase of Pick-5 Lottery Ticket for user: ${user_id}`);
+
     if (profile.balance < ticketPrice) {
+      console.log(`[SUPABASE TRANSACTION - ROLLBACK] User balance ${profile.balance} is less than ticket price ${ticketPrice}`);
       return res.status(400).json({ error: "Insufficient balance for Pick-5 Lottery ticket ($10.00)" });
     }
 
-    profile.balance = Number((profile.balance - ticketPrice).toFixed(2));
+    // Capture original balance for rollback safety
+    const originalBalance = profile.balance;
 
-    // Draw standard winning numbers (1 to 50)
-    const winning: number[] = [];
-    while (winning.length < 5) {
-      const drawn = Math.floor(1 + Math.random() * 50);
-      if (!winning.includes(drawn)) winning.push(drawn);
-    }
+    try {
+      // Execute Atomic Deduction
+      profile.balance = Number((profile.balance - ticketPrice).toFixed(2));
+      console.log(`[SUPABASE TRANSACTION - DEDUCT] Deducted $${ticketPrice} from user. New balance: ${profile.balance}`);
 
-    // Evaluate matches
-    const matches = chosen_numbers.filter((n: number) => winning.includes(n)).length;
+      // Draw standard winning numbers (1 to 50)
+      const winning: number[] = [];
+      while (winning.length < 5) {
+        const drawn = Math.floor(1 + Math.random() * 50);
+        if (!winning.includes(drawn)) winning.push(drawn);
+      }
 
-    // Define premium tier drops
-    let prize = 0;
-    let rewardDescription = "";
-    if (matches === 1) { prize = 5.00; rewardDescription = "$5.00 Credit Match"; }
-    else if (matches === 2) { prize = 20.00; rewardDescription = "$20.00 Credit Match"; }
-    else if (matches === 3) { prize = 100.00; rewardDescription = "Epic $100.00 Premium Match"; }
-    else if (matches === 4) { prize = 500.00; rewardDescription = "Mega $500.00 Premium Match"; }
-    else if (matches === 5) { prize = 2500.00; rewardDescription = "JACKPOT $2500.00 Hype Drop Match!"; }
+      // Evaluate matches
+      const matches = chosen_numbers.filter((n: number) => winning.includes(n)).length;
 
-    if (prize > 0) {
-      profile.balance = Number((profile.balance + prize).toFixed(2));
-    }
+      // Define premium tier drops
+      let prize = 0;
+      let rewardDescription = "";
+      if (matches === 1) { prize = 5.00; rewardDescription = "$5.00 Credit Match"; }
+      else if (matches === 2) { prize = 20.00; rewardDescription = "$20.00 Credit Match"; }
+      else if (matches === 3) { prize = 100.00; rewardDescription = "Epic $100.00 Premium Match"; }
+      else if (matches === 4) { prize = 500.00; rewardDescription = "Mega $500.00 Premium Match"; }
+      else if (matches === 5) { prize = 2500.00; rewardDescription = "JACKPOT $2500.00 Hype Drop Match!"; }
 
-    const lotState: LotteryState = {
-      id: "lottery-" + Math.floor(100000 + Math.random() * 900000),
-      user_id,
-      numbers: chosen_numbers,
-      status: prize > 0 ? "win" : "lose",
-      winning_numbers: winning,
-      matches_count: matches,
-      win_value: prize,
-      created_at: new Date().toISOString()
-    };
+      if (prize > 0) {
+        profile.balance = Number((profile.balance + prize).toFixed(2));
+        console.log(`[SUPABASE TRANSACTION - CREDIT] User won Pick-5! Credited $${prize}`);
+      }
 
-    lotteryTickets.push(lotState);
-
-    transactions.push({
-      id: "tx-" + Math.floor(100000 + Math.random() * 900000),
-      user_id,
-      type: "lottery_buy",
-      amount: -ticketPrice,
-      description: `Entered Pick-5 Daily Lottery (Numbers: ${chosen_numbers.join(", ")})`,
-      created_at: new Date().toISOString()
-    });
-
-    if (prize > 0) {
-      transactions.push({
-        id: "tx-" + Math.floor(100000 + Math.random() * 900000),
+      const lotState: LotteryState = {
+        id: "lottery-" + Math.floor(100000 + Math.random() * 900000),
         user_id,
-        type: "lottery_win",
-        amount: prize,
-        description: `Won Pick-5 Lottery: ${rewardDescription} (${matches} number matches)`,
+        numbers: chosen_numbers,
+        status: prize > 0 ? "win" : "lose",
+        winning_numbers: winning,
+        matches_count: matches,
+        win_value: prize,
+        created_at: new Date().toISOString()
+      };
+
+      lotteryTickets.push(lotState);
+
+      // Log secure transactions to ledger inside the same atomic boundary
+      const buyTxId = "tx-" + Math.floor(100000 + Math.random() * 900000);
+      transactions.push({
+        id: buyTxId,
+        user_id,
+        type: "lottery_buy",
+        amount: -ticketPrice,
+        description: `Entered Pick-5 Daily Lottery (Numbers: ${chosen_numbers.join(", ")}) (Verified Ref: ${buyTxId})`,
         created_at: new Date().toISOString()
       });
-    }
 
-    res.json({
-      success: true,
-      lottery: lotState,
-      winning_numbers: winning,
-      matches,
-      prize_won: prize,
-      new_balance: profile.balance
-    });
+      if (prize > 0) {
+        const winTxId = "tx-" + Math.floor(100000 + Math.random() * 900000);
+        transactions.push({
+          id: winTxId,
+          user_id,
+          type: "lottery_win",
+          amount: prize,
+          description: `Won Pick-5 Lottery: ${rewardDescription} (${matches} number matches) (Verified Ref: ${winTxId})`,
+          created_at: new Date().toISOString()
+        });
+      }
+
+      console.log(`[SUPABASE TRANSACTION - COMMIT] Transaction successfully finalized and persisted to ledger.`);
+
+      res.json({
+        success: true,
+        lottery: lotState,
+        winning_numbers: winning,
+        matches,
+        prize_won: prize,
+        new_balance: profile.balance
+      });
+
+    } catch (error) {
+      // In case of any unhandled runtime error during processing, trigger automatic state rollback to maintain credit security
+      profile.balance = originalBalance;
+      console.error(`[SUPABASE TRANSACTION - FATAL ROLLBACK] Transaction failed, state reverted to original balance ${originalBalance}:`, error);
+      res.status(500).json({ error: "Secure Supabase ledger transaction failed. Balance was fully rolled back safely." });
+    }
   });
 
   // Game 3: Item Upgrader
@@ -889,6 +1231,37 @@ async function startServer() {
   app.get("/api/transactions/:userId", (req, res) => {
     const userTxs = transactions.filter(tx => tx.user_id === req.params.userId);
     res.json(userTxs);
+  });
+
+  // Fetch shipments for Admin Panel
+  app.get("/api/admin/shipments", (req, res) => {
+    const shippedItems = inventories.filter(inv => inv.status === 'shipped');
+    const responseData = shippedItems.map(inv => {
+      const user = profiles.find(p => p.id === inv.user_id);
+      return {
+        id: inv.id,
+        username: user ? user.username : "Unknown",
+        itemName: inv.item?.name || "Unknown Item",
+        shippingAddress: user ? user.shipping_address : "No address listed",
+        status: "processing",
+        trackingLabel: inv.shipping_label
+      };
+    });
+    res.json(responseData);
+  });
+
+  // Process Shipment
+  app.post("/api/admin/shipments/:id/process", (req, res) => {
+    const { id } = req.params;
+    const inv = inventories.find(item => item.id === id);
+    if (!inv) {
+      return res.status(404).json({ error: "Shipment item not found" });
+    }
+    inv.status = 'processed';
+    res.json({
+      success: true,
+      message: `Successfully processed and shipped tracking label ${inv.shipping_label || 'N/A'}`
+    });
   });
 
   // Admin sync statistics

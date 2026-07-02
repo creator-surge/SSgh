@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useAuthStore } from '../store/useAuthStore';
 import { updateProfile } from '../lib/api';
-import { User, MapPin, Award, Smartphone, ShieldCheck, Mail } from 'lucide-react';
+import DailyRewards from '../components/DailyRewards';
+import { User, MapPin, Award, Smartphone } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function Profile() {
@@ -64,6 +65,9 @@ export default function Profile() {
           </p>
         </div>
       </div>
+
+      {/* Daily Reward Arena Section */}
+      <DailyRewards />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
