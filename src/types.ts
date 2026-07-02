@@ -126,3 +126,9 @@ export interface LotteryState {
   win_value?: number;
   created_at: string;
 }
+
+export interface SupabaseNote {
+  id: number;
+  title: string;
+  created_at: string;
+}

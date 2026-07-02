@@ -1284,6 +1284,68 @@ async function startServer() {
     });
   });
 
+  // --- SIMULATED SUPABASE NOTES ENGINE & SCHEMAS ---
+  interface SupabaseNote {
+    id: number;
+    title: string;
+    created_at: string;
+  }
+
+  let supabaseNotes: SupabaseNote[] = [
+    { id: 1, title: "Today I created a Supabase project.", created_at: new Date(Date.now() - 3600000 * 2).toISOString() },
+    { id: 2, title: "I added some data and queried it from Next.js.", created_at: new Date(Date.now() - 3600000).toISOString() },
+    { id: 3, title: "It was awesome!", created_at: new Date().toISOString() }
+  ];
+
+  // Retrieve all notes
+  app.get("/api/notes", (req, res) => {
+    res.json(supabaseNotes);
+  });
+
+  // Create a new note
+  app.post("/api/notes", (req, res) => {
+    const { title } = req.body;
+    if (!title || typeof title !== "string" || !title.trim()) {
+      return res.status(400).json({ error: "Title is required and must be a valid string." });
+    }
+
+    const nextId = supabaseNotes.length > 0 ? Math.max(...supabaseNotes.map(n => n.id)) + 1 : 1;
+    const newNote: SupabaseNote = {
+      id: nextId,
+      title: title.trim(),
+      created_at: new Date().toISOString()
+    };
+
+    supabaseNotes.push(newNote);
+    res.status(201).json(newNote);
+  });
+
+  // Delete a note
+  app.delete("/api/notes/:id", (req, res) => {
+    const idNum = parseInt(req.params.id, 10);
+    if (isNaN(idNum)) {
+      return res.status(400).json({ error: "Invalid ID parameter." });
+    }
+
+    const index = supabaseNotes.findIndex(n => n.id === idNum);
+    if (index === -1) {
+      return res.status(404).json({ error: "Note not found." });
+    }
+
+    const deleted = supabaseNotes.splice(index, 1);
+    res.json({ success: true, deleted: deleted[0] });
+  });
+
+  // Reset notes to mock/initial setup
+  app.post("/api/notes/reset", (req, res) => {
+    supabaseNotes = [
+      { id: 1, title: "Today I created a Supabase project.", created_at: new Date(Date.now() - 3600000 * 2).toISOString() },
+      { id: 2, title: "I added some data and queried it from Next.js.", created_at: new Date(Date.now() - 3600000).toISOString() },
+      { id: 3, title: "It was awesome!", created_at: new Date().toISOString() }
+    ];
+    res.json({ success: true, notes: supabaseNotes });
+  });
+
   // Leaderboard statistics
   app.get("/api/leaderboard", (req, res) => {
     // Auto rank profiles

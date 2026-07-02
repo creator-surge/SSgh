@@ -12,6 +12,7 @@ import Leaderboard from './pages/Leaderboard';
 import Admin from './pages/Admin';
 import Login from './pages/Login';
 import MiniGames from './pages/MiniGames';
+import Notes from './pages/Notes';
 
 // Battle Arena page container routing lobby vs active room
 function BattleArenaPage() {
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/games" element={<MiniGames />} />
+          <Route path="/notes" element={<Notes />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/admin" element={<Admin />} />

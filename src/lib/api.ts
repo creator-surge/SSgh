@@ -1,4 +1,4 @@
-import { Box, BoxItem, InventoryItem, Profile, Transaction, LiveFeedItem, Battle, ChatMessage } from "../types";
+import { Box, BoxItem, InventoryItem, Profile, Transaction, LiveFeedItem, Battle, ChatMessage, SupabaseNote } from "../types";
 import { callFunction } from "./supabase";
 
 export async function getBoxes(): Promise<Box[]> {
@@ -316,4 +316,44 @@ export async function playLottery(userId: string, chosenNumbers: number[]): Prom
   }
   return res.json();
 }
+
+// --- SUPABASE NOTES API WRAPPERS ---
+export async function getNotes(): Promise<SupabaseNote[]> {
+  const res = await fetch("/api/notes");
+  if (!res.ok) throw new Error("Failed to fetch Supabase notes.");
+  return res.json();
+}
+
+export async function createNote(title: string): Promise<SupabaseNote> {
+  const res = await fetch("/api/notes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to create Supabase note." }));
+    throw new Error(err.error || "Failed to create Supabase note.");
+  }
+  return res.json();
+}
+
+export async function deleteNote(id: number): Promise<{ success: boolean }> {
+  const res = await fetch(`/api/notes/${id}`, {
+    method: "DELETE"
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Failed to delete note." }));
+    throw new Error(err.error || "Failed to delete note.");
+  }
+  return res.json();
+}
+
+export async function resetNotes(): Promise<{ success: boolean; notes: SupabaseNote[] }> {
+  const res = await fetch("/api/notes/reset", {
+    method: "POST"
+  });
+  if (!res.ok) throw new Error("Failed to reset notes.");
+  return res.json();
+}
+
 
